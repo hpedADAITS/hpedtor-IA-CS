@@ -1,0 +1,16 @@
+=== ANÁLISIS FINAL DEL JUEGO ===
+Puntuación Final: Jugador 3 - Máquina 2
+Movimientos Totales: 10
+
+PATRÓN PRINCIPAL DETECTADO:
+  "papel" (4 veces, 40%)
+
+DISTRIBUCIÓN DE MOVIMIENTOS:
+  Piedra: 3 (30%)
+  Papel: 4 (40%)
+  Tijeras: 3 (30%)
+
+DESVIACIONES CLAVE:
+  6 movimientos (60%)
+
+PREDICTIBILIDAD FINAL: 40%

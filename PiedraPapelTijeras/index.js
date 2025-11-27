@@ -1,5 +1,7 @@
 import blessed from 'blessed';
 import 'dotenv/config.js';
+import fs from 'fs';
+import path from 'path';
 
 const OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY;
 const LM_STUDIO_URL = process.env.LM_STUDIO_URL || 'http://localhost:1234';
@@ -153,7 +155,7 @@ function initScreen() {
         height: 3,
         name: 'input',
         border: 'line',
-        label: ' Input (Type your move and press ENTER) ',
+        label: ' Entrada (Escribe tu jugada y presiona ENTER) ',
         style: {
             border: {
                 fg: 'yellow',
@@ -322,7 +324,7 @@ async function generateMachineResponse(gameState) {
 }
 
 /**
- * Generate final analysis
+ * Generate final analysis (with ANSI colors for UI display)
  */
 function generateFinalAnalysis(gameState) {
     const { history, score } = gameState;
@@ -350,18 +352,18 @@ function generateFinalAnalysis(gameState) {
     const deviations = playerMoves.filter((m) => m !== mostCommon).length;
     const deviationPercentage = (deviations / playerMoves.length) * 100;
 
-    return `${COLORS.green}=== FINAL GAME ANALYSIS ===${COLORS.reset}
-Final Score: ${COLORS.cyan}Player ${score.player}${COLORS.reset} - ${
+    return `${COLORS.green}=== ANÁLISIS FINAL DEL JUEGO ===${COLORS.reset}
+Puntuación Final: ${COLORS.cyan}Jugador ${score.player}${COLORS.reset} - ${
         COLORS.magenta
-    }Machine ${score.machine}${COLORS.reset}
-Total Moves: ${playerMoves.length}
+    }Máquina ${score.machine}${COLORS.reset}
+Movimientos Totales: ${playerMoves.length}
 
-${COLORS.bold}MAIN PATTERN DETECTED:${COLORS.reset}
+${COLORS.bold}PATRÓN PRINCIPAL DETECTADO:${COLORS.reset}
   "${COLORS.yellow}${mostCommon}${COLORS.reset}" (${
         counts[mostCommon]
-    } times, ${Math.round(predictability * 10) / 10}%)
+    } veces, ${Math.round(predictability * 10) / 10}%)
 
-${COLORS.bold}MOVE DISTRIBUTION:${COLORS.reset}
+${COLORS.bold}DISTRIBUCIÓN DE MOVIMIENTOS:${COLORS.reset}
   ${COLORS.yellow}Piedra${COLORS.reset}: ${counts.piedra} (${
         Math.round((counts.piedra / playerMoves.length) * 1000) / 10
     }%)
@@ -372,12 +374,83 @@ ${COLORS.bold}MOVE DISTRIBUTION:${COLORS.reset}
         Math.round((counts.tijeras / playerMoves.length) * 1000) / 10
     }%)
 
-${COLORS.bold}KEY DEVIATIONS:${COLORS.reset}
-  ${deviations} moves (${Math.round(deviationPercentage * 10) / 10}%)
+${COLORS.bold}DESVIACIONES CLAVE:${COLORS.reset}
+  ${deviations} movimientos (${Math.round(deviationPercentage * 10) / 10}%)
 
-${COLORS.green}FINAL PREDICTABILITY: ${Math.round(predictability * 10) / 10}%${
+${COLORS.green}PREDICTIBILIDAD FINAL: ${Math.round(predictability * 10) / 10}%${
         COLORS.reset
     }`;
+}
+
+/**
+ * Generate plain text analysis (no ANSI colors - for JSON responses)
+ */
+function generatePlainTextAnalysis(gameState) {
+    const { history, score } = gameState;
+    const playerMoves = history.player;
+
+    if (playerMoves.length === 0) {
+        return 'No moves to analyze.';
+    }
+
+    const counts = {
+        piedra: 0,
+        papel: 0,
+        tijeras: 0,
+    };
+
+    playerMoves.forEach((move) => {
+        counts[move]++;
+    });
+
+    const mostCommon = Object.keys(counts).reduce((a, b) =>
+        counts[a] > counts[b] ? a : b,
+    );
+    const predictability = (counts[mostCommon] / playerMoves.length) * 100;
+
+    const deviations = playerMoves.filter((m) => m !== mostCommon).length;
+    const deviationPercentage = (deviations / playerMoves.length) * 100;
+
+    return `=== ANÁLISIS FINAL DEL JUEGO ===
+Puntuación Final: Jugador ${score.player} - Máquina ${score.machine}
+Movimientos Totales: ${playerMoves.length}
+
+PATRÓN PRINCIPAL DETECTADO:
+  "${mostCommon}" (${counts[mostCommon]} veces, ${Math.round(predictability * 10) / 10}%)
+
+DISTRIBUCIÓN DE MOVIMIENTOS:
+  Piedra: ${counts.piedra} (${Math.round((counts.piedra / playerMoves.length) * 1000) / 10}%)
+  Papel: ${counts.papel} (${Math.round((counts.papel / playerMoves.length) * 1000) / 10}%)
+  Tijeras: ${counts.tijeras} (${Math.round((counts.tijeras / playerMoves.length) * 1000) / 10}%)
+
+DESVIACIONES CLAVE:
+  ${deviations} movimientos (${Math.round(deviationPercentage * 10) / 10}%)
+
+PREDICTIBILIDAD FINAL: ${Math.round(predictability * 10) / 10}%`;
+}
+
+/**
+ * Save analysis to disk
+ */
+function saveAnalysisToDisk(analysis) {
+    try {
+        // Create Plays directory if it doesn't exist
+        const playsDir = path.join(process.cwd(), 'Plays');
+        if (!fs.existsSync(playsDir)) {
+            fs.mkdirSync(playsDir, { recursive: true });
+        }
+
+        // Generate filename with timestamp
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+        const filename = path.join(playsDir, `analysis_${timestamp}.txt`);
+
+        // Write analysis to file
+        fs.writeFileSync(filename, analysis, 'utf-8');
+        return filename;
+    } catch (err) {
+        console.error('Error saving analysis to disk:', err);
+        return null;
+    }
 }
 
 /**
@@ -405,8 +478,8 @@ async function selectProvider() {
             top: 'center',
             left: 'center',
             border: 'line',
-            label: ' Select Provider ',
-            items: ['OpenRouter (Online)', 'LM Studio (Local)'],
+            label: ' Seleccionar Proveedor ',
+            items: ['OpenRouter (En línea)', 'LM Studio (Local)'],
         });
 
         list.on('select', (item, index) => {
@@ -432,7 +505,7 @@ async function selectProvider() {
  */
 async function callOpenRouter(message) {
     if (!OPENROUTER_API_KEY) {
-        throw new Error('OPENROUTER_API_KEY not set in .env file');
+        throw new Error('OPENROUTER_API_KEY no está configurada en el archivo .env');
     }
 
     const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
@@ -479,7 +552,7 @@ async function callLMStudio(message) {
 
     if (!res.ok) {
         throw new Error(
-            `LM Studio error: ${res.status}. Make sure LM Studio is running on ${LM_STUDIO_URL}`,
+            `Error en LM Studio: ${res.status}. Asegúrate de que LM Studio esté ejecutándose en ${LM_STUDIO_URL}`,
         );
     }
 
@@ -493,23 +566,23 @@ async function callLMStudio(message) {
 async function gameLoop() {
     initScreen();
 
-    log(`${COLORS.cyan}Initializing game...${COLORS.reset}`);
-    log(`${COLORS.yellow}Checking available providers...${COLORS.reset}`);
+    log(`${COLORS.cyan}Inicializando juego...${COLORS.reset}`);
+    log(`${COLORS.yellow}Verificando proveedores disponibles...${COLORS.reset}`);
     log('');
 
     await selectProvider();
 
     clearLog();
 
-    log(`${COLORS.green}Provider selected: ${selectedProvider}${COLORS.reset}`);
+    log(`${COLORS.green}Proveedor seleccionado: ${selectedProvider}${COLORS.reset}`);
     log('');
-    log(`${COLORS.cyan}Game started!${COLORS.reset}`);
+    log(`${COLORS.cyan}¡Juego iniciado!${COLORS.reset}`);
     log(
-        `${COLORS.yellow}Enter your move: piedra, papel, or tijeras${COLORS.reset}`,
+        `${COLORS.yellow}Ingresa tu jugada: piedra, papel o tijeras${COLORS.reset}`,
     );
-    log(`${COLORS.white}Type "finish" to end the game${COLORS.reset}`);
+    log(`${COLORS.white}Escribe "finish" para terminar el juego${COLORS.reset}`);
     log(
-        `${COLORS.blue}Press ENTER to focus the input field and start playing${COLORS.reset}`,
+        `${COLORS.blue}Presiona ENTER para enfocarte en el campo de entrada y comenzar a jugar${COLORS.reset}`,
     );
     log('');
 
@@ -522,7 +595,7 @@ async function gameLoop() {
 
         // Prevent empty input
         if (!rawInput || rawInput.length === 0) {
-            log(`${COLORS.yellow}Please enter a move.${COLORS.reset}`);
+            log(`${COLORS.yellow}Por favor, ingresa una jugada.${COLORS.reset}`);
             setTimeout(() => {
                 inputBox.focus();
                 screen.render();
@@ -532,12 +605,32 @@ async function gameLoop() {
 
         log(`${COLORS.white}> ${rawInput}${COLORS.reset}`);
 
-        if (rawInput === 'finish') {
-            const analysis = generateFinalAnalysis(gameState);
+        // Check for JSON finish command
+        let isFinish = false;
+        try {
+            const parsed = JSON.parse(rawInput);
+            if (parsed.finish === true) {
+                isFinish = true;
+            }
+        } catch {
+            // Not JSON, check for plain "finish"
+            if (rawInput === 'finish') {
+                isFinish = true;
+            }
+        }
+
+        if (isFinish) {
+            const analysis = generatePlainTextAnalysis(gameState);
+            const savedPath = saveAnalysisToDisk(analysis);
             log(analysis);
             log('');
+            if (savedPath) {
+                log(
+                    `${COLORS.green}Análisis guardado en: ${savedPath}${COLORS.reset}`,
+                );
+            }
             log(
-                `${COLORS.yellow}Game finished. Press Q or Ctrl-C to exit.${COLORS.reset}`,
+                `${COLORS.yellow}Juego finalizado. Presiona Q o Ctrl-C para salir.${COLORS.reset}`,
             );
             setTimeout(() => {
                 inputBox.focus();
@@ -553,65 +646,84 @@ async function gameLoop() {
         if (!input && selectedProvider === 'lmstudio') {
             try {
                 log(
-                    `${COLORS.yellow}Asking AI to diagnose: "${rawInput}"...${COLORS.reset}`,
+                    `${COLORS.yellow}Pidiendo a la IA que interprete: "${rawInput}"...${COLORS.reset}`,
                 );
-                const prompt = `The user entered "${rawInput}" in a Rock-Paper-Scissors game. The ONLY valid moves are: piedra, papel, or tijeras.
-If "${rawInput}" could mean one of these moves, respond with ONLY that move.
-If "${rawInput}" is completely invalid and means none of the valid moves, respond with ONLY the word: invalid`;
+                const prompt = `El usuario ingresó "${rawInput}" en un juego de Piedra, Papel o Tijeras. Las ÚNICAS jugadas válidas son: piedra, papel o tijeras.
+Si "${rawInput}" podría significar una de estas jugadas, responde SOLO con esa jugada.
+Si "${rawInput}" es completamente inválida y no significa ninguna de las jugadas válidas, responde SOLO con la palabra: inválido`;
 
-                // Send POST request to LM Studio API
-                const res = await fetch(
-                    `${LM_STUDIO_URL}/v1/chat/completions`,
-                    {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
+                // Create abort controller with timeout
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+                try {
+                    // Send POST request to LM Studio API
+                    const res = await fetch(
+                        `${LM_STUDIO_URL}/v1/chat/completions`,
+                        {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify({
+                                messages: [
+                                    {
+                                        role: 'system',
+                                        content:
+                                            'Eres un validador estricto de jugadas. Responde SOLO con una palabra: piedra, papel, tijeras o inválido.',
+                                    },
+                                    {
+                                        role: 'user',
+                                        content: prompt,
+                                    },
+                                ],
+                                temperature: 0.1,
+                                max_tokens: 20,
+                            }),
+                            signal: controller.signal,
                         },
-                        body: JSON.stringify({
-                            messages: [
-                                {
-                                    role: 'system',
-                                    content:
-                                        'You are a strict move validator. Respond with ONLY one word: piedra, papel, tijeras, or invalid.',
-                                },
-                                {
-                                    role: 'user',
-                                    content: prompt,
-                                },
-                            ],
-                            temperature: 0.1,
-                            max_tokens: 20,
-                        }),
-                    },
-                );
-
-                if (!res.ok) {
-                    throw new Error(`LM Studio API error: ${res.status}`);
-                }
-
-                const data = await res.json();
-                const aiResponse = (data.choices?.[0]?.message?.content || '')
-                    .toLowerCase()
-                    .trim();
-
-                // Check if AI says it's invalid
-                if (aiResponse === 'invalid') {
-                    log(
-                        `${COLORS.red}AI diagnosis: "${rawInput}" is not a valid move.${COLORS.reset}`,
                     );
-                    // Continue to show error below
-                } else {
-                    const aiSuggestion = normalizeMove(aiResponse);
-                    if (aiSuggestion) {
-                        input = aiSuggestion;
+                    clearTimeout(timeoutId);
+
+                    if (!res.ok) {
+                        throw new Error(`Error en LM Studio API: ${res.status}`);
+                    }
+
+                    const data = await res.json();
+                    const aiResponse = (data.choices?.[0]?.message?.content || '')
+                        .toLowerCase()
+                        .trim();
+
+                    // Check if AI says it's invalid
+                    if (aiResponse === 'inválido') {
                         log(
-                            `${COLORS.green}AI interpreted "${rawInput}" as: ${input}${COLORS.reset}`,
+                            `${COLORS.red}Diagnóstico de IA: "${rawInput}" no es una jugada válida.${COLORS.reset}`,
+                        );
+                        // Continue to show error below
+                    } else {
+                        const aiSuggestion = normalizeMove(aiResponse);
+                        if (aiSuggestion) {
+                            input = aiSuggestion;
+                            log(
+                                `${COLORS.green}La IA interpretó "${rawInput}" como: ${input}${COLORS.reset}`,
+                            );
+                        }
+                    }
+                } catch (fetchErr) {
+                    clearTimeout(timeoutId);
+                    if (fetchErr.name === 'AbortError') {
+                        log(
+                            `${COLORS.yellow}Tiempo de espera agotado. LM Studio no respondió en tiempo.${COLORS.reset}`,
+                        );
+                    } else {
+                        log(
+                            `${COLORS.yellow}No se pudo conectar con la IA. Verifica que LM Studio esté ejecutándose en ${LM_STUDIO_URL}${COLORS.reset}`,
                         );
                     }
                 }
             } catch (err) {
                 log(
-                    `${COLORS.yellow}Could not ask AI for help: ${err.message}${COLORS.reset}`,
+                    `${COLORS.yellow}Error al procesar tu entrada: ${err.message}${COLORS.reset}`,
                 );
             }
 
@@ -625,7 +737,7 @@ If "${rawInput}" is completely invalid and means none of the valid moves, respon
 
         if (!input) {
             log(
-                `${COLORS.red}Invalid move. Try: piedra, papel, tijeras, rock, paper, scissors, p, pa, or t${COLORS.reset}`,
+                `${COLORS.red}Jugada inválida. Intenta: piedra, papel, tijeras, rock, paper, scissors, p, pa o t${COLORS.reset}`,
             );
             // Restore focus on invalid input
             setTimeout(() => {
@@ -638,12 +750,19 @@ If "${rawInput}" is completely invalid and means none of the valid moves, respon
         // Check if max rounds reached
         if (gameState.round >= MAX_ROUNDS) {
             log(
-                `${COLORS.red}Maximum rounds (${MAX_ROUNDS}) reached! Game over.${COLORS.reset}`,
+                `${COLORS.red}¡Se alcanzó el máximo de rondas (${MAX_ROUNDS})! Juego terminado.${COLORS.reset}`,
             );
             const analysis = generateFinalAnalysis(gameState);
+            const plainAnalysis = generatePlainTextAnalysis(gameState);
+            const savedPath = saveAnalysisToDisk(plainAnalysis);
             log(analysis);
             log('');
-            log(`${COLORS.yellow}Press Q or Ctrl-C to exit.${COLORS.reset}`);
+            if (savedPath) {
+                log(
+                    `${COLORS.green}Análisis guardado en: ${savedPath}${COLORS.reset}`,
+                );
+            }
+            log(`${COLORS.yellow}Presiona Q o Ctrl-C para salir.${COLORS.reset}`);
             setTimeout(() => {
                 inputBox.focus();
                 screen.render();
@@ -677,17 +796,17 @@ If "${rawInput}" is completely invalid and means none of the valid moves, respon
 
             log(`${COLORS.cyan}[${roundInfoText}]${COLORS.reset}`);
             log(
-                `${COLORS.white}You: ${COLORS.cyan}${input}${COLORS.white} vs Machine: ${COLORS.magenta}${machineMove}${COLORS.reset}`,
+                `${COLORS.white}Tú: ${COLORS.cyan}${input}${COLORS.white} vs Máquina: ${COLORS.magenta}${machineMove}${COLORS.reset}`,
             );
-            log(`${resultColor}Result: ${result.toUpperCase()}${COLORS.reset}`);
+            log(`${resultColor}Resultado: ${result.toUpperCase()}${COLORS.reset}`);
             log(
-                `${COLORS.blue}Prediction: ${response.analysis.player_next_move_prediction}${COLORS.reset}`,
-            );
-            log(
-                `${COLORS.blue}Accuracy: ${response.analysis.predictability_percentage}%${COLORS.reset}`,
+                `${COLORS.blue}Predicción: ${response.analysis.player_next_move_prediction}${COLORS.reset}`,
             );
             log(
-                `${COLORS.cyan}Score: ${gameState.score.player} - ${gameState.score.machine}${COLORS.reset}`,
+                `${COLORS.blue}Precisión: ${response.analysis.predictability_percentage}%${COLORS.reset}`,
+            );
+            log(
+                `${COLORS.cyan}Puntuación: ${gameState.score.player} - ${gameState.score.machine}${COLORS.reset}`,
             );
             log('');
 
